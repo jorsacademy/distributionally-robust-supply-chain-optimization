@@ -1,14 +1,22 @@
 {
   "training_seed": 7,
   "ood_seed": 77,
-  "training_samples": 30,
-  "ood_samples": 200,
-  "wasserstein_radii": [0.0, 1.0, 3.0, 6.0, 10.0],
-  "costs": {
-    "unit_cost": 2.0,
-    "holding_cost": 1.0,
-    "shortage_cost": 7.0
+  "training_samples": 6,
+  "ood_samples": 40,
+  "ood_demand_shift": 12.0,
+  "capacity_grid_step": 20.0,
+  "wasserstein_radii": [0.0, 4.0, 8.0, 12.0],
+  "network": {
+    "suppliers": 2,
+    "markets": 2,
+    "supplier_capacity": [80.0, 80.0],
+    "reservation_cost": [1.8, 2.2],
+    "shortage_cost": [9.0, 11.0]
   },
-  "primary_kpis": ["mean_cost", "cvar", "service_level", "stockout_rate"],
-  "next_stage": "extend to two-stage capacitated supplier allocation with disruption uncertainty"
+  "primary_kpis": ["mean_total_cost", "p90_total_cost", "worst_total_cost"],
+  "validation_rules": [
+    "epsilon_zero_must_match_empirical_expected_recourse",
+    "worst_case_recourse_must_be_non_decreasing_in_radius",
+    "all_reserved_capacity_must_respect_supplier_limits"
+  ]
 }
