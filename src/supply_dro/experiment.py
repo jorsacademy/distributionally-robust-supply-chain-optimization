@@ -1,29 +1,35 @@
-from .model import CostModel, empirical_demand, shifted_demand
-from .optimize import evaluate, optimize_dro, optimize_nominal
+from .network import default_network, demand_scenarios
+from .network_optimize import evaluate_network_policy, optimize_dro_network, optimize_nominal_network
+
+
+def _capacity_text(capacity):
+    return "/".join(f"{value:.0f}" for value in capacity)
 
 
 def main():
-    model = CostModel()
-    train = empirical_demand()
-    ood = shifted_demand()
+    data = default_network()
+    train = demand_scenarios(seed=7, n=6)
+    ood = demand_scenarios(seed=77, n=40, shift=12.0)
 
-    nominal = optimize_nominal(train, model)
-    print("method,epsilon,order_quantity,train_mean,ood_mean,ood_cvar,ood_service_level")
+    nominal = optimize_nominal_network(train, data, step=20.0)
+    nominal_train = evaluate_network_policy(nominal["capacity"], train, data)
+    nominal_ood = evaluate_network_policy(nominal["capacity"], ood, data)
 
-    train_eval = evaluate(nominal["order_quantity"], train, model)
-    ood_eval = evaluate(nominal["order_quantity"], ood, model)
+    print("method,epsilon,capacity,train_mean,ood_mean,ood_p90,ood_worst")
     print(
-        f"nominal,0,{nominal['order_quantity']:.0f},{train_eval['mean_cost']:.3f},"
-        f"{ood_eval['mean_cost']:.3f},{ood_eval['cvar']:.3f},{ood_eval['service_level']:.3f}"
+        f"nominal,0,{_capacity_text(nominal['capacity'])},"
+        f"{nominal_train['mean_total_cost']:.3f},{nominal_ood['mean_total_cost']:.3f},"
+        f"{nominal_ood['p90_total_cost']:.3f},{nominal_ood['worst_total_cost']:.3f}"
     )
 
-    for epsilon in (1.0, 3.0, 6.0, 10.0):
-        robust = optimize_dro(train, model, epsilon)
-        train_eval = evaluate(robust["order_quantity"], train, model)
-        ood_eval = evaluate(robust["order_quantity"], ood, model)
+    for epsilon in (4.0, 8.0, 12.0):
+        robust = optimize_dro_network(train, data, epsilon=epsilon, step=20.0)
+        train_eval = evaluate_network_policy(robust["capacity"], train, data)
+        ood_eval = evaluate_network_policy(robust["capacity"], ood, data)
         print(
-            f"dro,{epsilon:.1f},{robust['order_quantity']:.0f},{train_eval['mean_cost']:.3f},"
-            f"{ood_eval['mean_cost']:.3f},{ood_eval['cvar']:.3f},{ood_eval['service_level']:.3f}"
+            f"dro,{epsilon:.1f},{_capacity_text(robust['capacity'])},"
+            f"{train_eval['mean_total_cost']:.3f},{ood_eval['mean_total_cost']:.3f},"
+            f"{ood_eval['p90_total_cost']:.3f},{ood_eval['worst_total_cost']:.3f}"
         )
 
 
