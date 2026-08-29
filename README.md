@@ -1,23 +1,60 @@
 # Distributionally Robust Supply Chain Optimization
 
-Research-oriented Industrial Engineering / Operations Research project for supply-chain decisions under **distribution shift**. The initial model is a data-driven single-period ordering problem evaluated under an empirical Wasserstein ambiguity set; the repository is designed to expand toward multi-echelon and two-stage network models.
+Research-oriented Industrial Engineering / Operations Research project for supply-chain decisions under **distribution shift** using two-stage stochastic optimization and finite-support Wasserstein distributionally robust optimization (DRO).
 
 ## Research question
 
-How much nominal performance should an operator sacrifice to obtain decisions that remain reliable when the future demand distribution differs from the empirical training sample?
+How much nominal performance should a supply-network planner sacrifice to obtain first-stage capacity decisions that remain reliable when the future demand distribution differs from the empirical training sample?
 
-## Controllers compared
+## Current status
 
-- empirical expected-value optimization;
-- scenario stress-test optimization;
-- Wasserstein distributionally robust optimization (DRO);
-- simple safety-stock/base-stock policies for interpretability.
+**Phase 2 implemented: two-stage capacitated supply network + Wasserstein ambiguity.**
 
-## Wasserstein DRO core
+The repository now contains both the original auditable single-period model and a richer network model with:
 
-For a candidate decision, the inner adversary redistributes empirical probability mass across a finite demand support. A transport plan is constrained by a Wasserstein transportation budget. The adversary maximizes operating cost; the outer optimization selects the decision minimizing this worst-case expectation.
+- two suppliers and two demand markets;
+- first-stage supplier-capacity reservation decisions;
+- supplier capacity limits;
+- market-specific shortage penalties;
+- second-stage shipment and shortage recourse solved by LP;
+- correlated vector demand scenarios;
+- finite-support 1-Wasserstein ambiguity over those scenarios;
+- nominal expected-value capacity optimization;
+- DRO capacity optimization;
+- independent OOD demand-shift evaluation;
+- tests for Wasserstein and capacity-model invariants;
+- CI across supported Python versions.
 
-The included implementation solves the inner transport LP exactly with `scipy.optimize.linprog` and searches the one-dimensional order decision on an explicit grid. This keeps the mathematics auditable before extending to larger mixed-integer network models.
+## Two-stage formulation
+
+For reserved supplier capacity `x`, each realized demand scenario `d` triggers a recourse LP. The second stage chooses shipments `y_sm` and shortages `u_m`:
+
+```text
+min  sum(c_sm y_sm) + sum(p_m u_m)
+s.t. sum_m y_sm <= x_s                    for each supplier s
+     sum_s y_sm + u_m >= d_m               for each market m
+     y_sm, u_m >= 0
+```
+
+The first stage pays capacity reservation cost before demand is observed. Nominal optimization minimizes
+
+```text
+reservation_cost(x) + empirical_mean[recourse(x, d)].
+```
+
+The DRO model instead minimizes
+
+```text
+reservation_cost(x) + worst_case_Q E_Q[recourse(x, d)]
+```
+
+where `Q` lies inside a finite-support 1-Wasserstein ball around the empirical demand distribution.
+
+## Wasserstein adversary
+
+The empirical scenarios are vector-valued market demands. The adversary transports probability mass between observed scenarios subject to an L1 transportation budget. Destination scenario costs are the optimized second-stage recourse values for the fixed first-stage capacity decision.
+
+At radius `epsilon = 0`, the worst-case recourse must equal the empirical expected recourse. Increasing the radius cannot decrease the worst-case expected recourse; both properties are tested.
 
 ## Quick start
 
@@ -25,20 +62,26 @@ The included implementation solves the inner transport LP exactly with `scipy.op
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
-pytest
+pytest -q
 python -m supply_dro.experiment
 ```
+
+The smoke experiment trains capacity decisions on a small correlated demand sample and evaluates them on an independent distribution-shift scenario set with higher demand.
 
 ## Repository map
 
 ```text
 src/supply_dro/
-  model.py          # cost model and empirical demand data
-  wasserstein.py    # worst-case transport LP
-  optimize.py       # nominal and DRO decisions
-  experiment.py     # nominal/OOD stress campaign
+  model.py                 # original single-period reference model
+  wasserstein.py           # scalar-demand Wasserstein transport LP
+  optimize.py              # original nominal/DRO reference optimizer
+  network.py               # two-stage capacitated supply network + recourse LP
+  network_wasserstein.py   # vector-demand Wasserstein adversary
+  network_optimize.py      # nominal and DRO first-stage capacity optimization
+  experiment.py            # nominal vs DRO OOD comparison
 tests/
   test_dro.py
+  test_network_dro.py
 configs/
   experiment.json
 .github/workflows/
@@ -47,23 +90,45 @@ configs/
 
 ## Evaluation contract
 
-Do not select a model on nominal expected cost alone. Report:
+Do not select a policy on nominal expected cost alone. Report at minimum:
 
-- nominal expected cost;
-- worst-case ambiguity-set cost;
-- CVaR / tail cost on independent scenarios;
-- stockout frequency and service level;
-- sensitivity to ambiguity radius;
-- stability under demand mean/variance shifts.
+- training-distribution mean total cost;
+- OOD mean total cost;
+- OOD p90 cost;
+- worst observed OOD cost;
+- selected supplier capacity vector;
+- sensitivity to Wasserstein radius;
+- first-stage cost versus recourse-cost decomposition.
 
-## Research extensions
+For larger experiments, add CVaR, service-level and shortage-rate metrics by market.
 
-1. two-stage capacitated supplier allocation;
-2. lead-time and supplier-disruption uncertainty;
-3. multi-echelon inventory;
-4. mixed-integer facility/capacity decisions;
-5. comparison with robust optimization and classical stochastic programming;
-6. decision-focused calibration of ambiguity radius.
+## Validation rules
+
+A DRO implementation is accepted only if:
+
+1. `epsilon = 0` reproduces empirical expected recourse;
+2. worst-case expected recourse is non-decreasing in Wasserstein radius;
+3. capacity decisions obey supplier limits;
+4. all second-stage demand is either shipped or represented as explicit shortage;
+5. nominal and DRO policies are evaluated on identical OOD scenarios.
+
+## Next research stages
+
+### Phase 3 — disruption uncertainty
+Add supplier availability states, capacity-loss events and transport-lane disruption scenarios. Compare demand-only ambiguity against joint demand/disruption ambiguity.
+
+### Phase 4 — stronger optimization baselines
+Compare empirical stochastic programming, box/polyhedral robust optimization and Wasserstein DRO under identical first-stage and recourse structures.
+
+### Phase 5 — radius calibration
+Use validation-only procedures to calibrate the ambiguity radius. Final-test scenarios must remain untouched until model selection is frozen.
+
+### Phase 6 — larger network
+Extend to multiple suppliers, plants/warehouses and customer zones. Replace explicit capacity-grid search with mathematical optimization or decomposition once dimensionality makes enumeration inappropriate.
+
+## Portfolio signal
+
+The project demonstrates the difference between uncertainty modeling and simply adding safety stock: first-stage capacity decisions are evaluated through explicit recourse optimization, while the ambiguity set changes the probability law rather than manually inflating demand.
 
 ## License
 
