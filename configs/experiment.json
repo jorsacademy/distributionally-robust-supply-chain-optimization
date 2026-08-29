@@ -1,0 +1,14 @@
+{
+  "training_seed": 7,
+  "ood_seed": 77,
+  "training_samples": 30,
+  "ood_samples": 200,
+  "wasserstein_radii": [0.0, 1.0, 3.0, 6.0, 10.0],
+  "costs": {
+    "unit_cost": 2.0,
+    "holding_cost": 1.0,
+    "shortage_cost": 7.0
+  },
+  "primary_kpis": ["mean_cost", "cvar", "service_level", "stockout_rate"],
+  "next_stage": "extend to two-stage capacitated supplier allocation with disruption uncertainty"
+}
