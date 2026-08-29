@@ -1,5 +1,9 @@
 from .network import default_network, demand_scenarios
-from .network_optimize import evaluate_network_policy, optimize_dro_network, optimize_nominal_network
+from .network_optimize import (
+    evaluate_network_policy,
+    optimize_dro_network,
+    optimize_nominal_network,
+)
 
 
 def _capacity_text(capacity):
