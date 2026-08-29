@@ -1,36 +1,32 @@
 # Distributionally Robust Supply Chain Optimization
 
-Research-oriented Industrial Engineering / Operations Research project for supply-chain decisions under **distribution shift and supplier disruption** using two-stage stochastic optimization, finite-support Wasserstein DRO and a classical finite stress-set robust baseline.
+Research-oriented Industrial Engineering / Operations Research benchmark for two-stage supply-network decisions under **distribution shift and supplier disruption**.
 
 ## Research question
 
-How should a supply-network planner trade nominal efficiency against resilience when uncertainty comes from both demand distribution shift and supplier-capacity loss?
+How should a supply-network planner trade nominal efficiency against resilience when uncertainty comes from both demand distribution shift and supplier-capacity loss, and when does joint distributional robustness add value beyond demand-only DRO or a classical stress set?
 
 ## Current status
 
-**Phase 3 implemented: two-stage network + Wasserstein DRO + supplier disruption + classical robust comparison.**
+**Feature-complete research benchmark.**
 
-The repository contains:
+The repository implements:
 
-- two suppliers and two demand markets;
-- first-stage supplier-capacity reservation decisions;
-- supplier capacity limits;
-- market-specific shortage penalties;
-- second-stage shipment and shortage recourse solved by LP;
+- two-stage supplier-capacity reservation and LP recourse;
 - correlated vector demand scenarios;
-- finite-support 1-Wasserstein ambiguity over demand scenarios;
-- supplier availability multipliers for disruption states;
-- a finite demand/disruption stress set;
-- nominal expected-value capacity optimization;
-- Wasserstein DRO capacity optimization;
-- classical min-max robust capacity optimization over the stress set;
-- independent OOD demand-shift evaluation;
-- disruption stress evaluation;
-- tests and CI across Python 3.10-3.12.
+- supplier availability multipliers for capacity disruptions;
+- nominal empirical stochastic optimization;
+- finite-support demand-only 1-Wasserstein DRO;
+- classical min-max robust optimization over named demand/disruption stresses;
+- joint demand-and-availability Wasserstein DRO;
+- validation-only ambiguity-radius calibration;
+- frozen nominal, demand-shift and joint-shift final evaluation blocks;
+- paired bootstrap comparisons against the nominal policy;
+- reproducible configs, tests, final report and CI across Python 3.10–3.12.
 
 ## Two-stage formulation
 
-For reserved supplier capacity `x`, demand `d` and supplier availability `a`, the recourse problem chooses shipment `y_sm` and shortage `u_m`:
+For reserved supplier capacity `x`, realized demand `d` and supplier availability `a`, the recourse problem chooses shipment `y_sm` and shortage `u_m`:
 
 ```text
 min  sum(c_sm y_sm) + sum(p_m u_m)
@@ -39,9 +35,9 @@ s.t. sum_m y_sm <= a_s x_s                  for each supplier s
      y_sm, u_m >= 0
 ```
 
-The first stage pays reservation cost before uncertainty is realized.
+Reservation cost is paid before uncertainty is observed.
 
-## Three decision paradigms
+## Four uncertainty paradigms
 
 ### Nominal stochastic optimization
 
@@ -49,15 +45,17 @@ The first stage pays reservation cost before uncertainty is realized.
 reservation_cost(x) + empirical_mean[recourse(x, d)]
 ```
 
-This is efficient when the training distribution is representative but does not directly protect against distribution shift or supplier outages.
-
-### Wasserstein DRO
+### Demand-only Wasserstein DRO
 
 ```text
 reservation_cost(x) + worst_case_Q E_Q[recourse(x, d)]
 ```
 
-`Q` lies inside a finite-support 1-Wasserstein ball around empirical vector-demand scenarios. This model perturbs the probability law of demand while retaining the same recourse structure.
+`Q` lies in a finite-support 1-Wasserstein ball around empirical vector-demand scenarios. Supplier availability is held at full availability.
+
+### Joint demand/disruption Wasserstein DRO
+
+The ambiguity state contains both demand and supplier availability. The transport metric combines normalized L1 demand distance with a separately weighted availability distance, allowing the adversary to shift probability mass toward states that are both demand-intensive and capacity-impaired.
 
 ### Classical finite-set robust optimization
 
@@ -65,86 +63,97 @@ reservation_cost(x) + worst_case_Q E_Q[recourse(x, d)]
 min_x max_scenario total_cost(x, demand_s, availability_s)
 ```
 
-The stress set includes demand surges, individual supplier capacity losses and a joint stress case. This baseline protects explicitly against named operational disruptions rather than probabilistic distribution shift.
+The stress set contains demand surges, individual supplier disruptions and a joint stress case. This model protects against named operational scenarios rather than a probabilistic ambiguity neighborhood.
 
-The repository intentionally keeps these two notions of robustness separate.
+These paradigms are reported separately because their uncertainty assumptions are materially different.
 
-## Supplier disruption model
+## Radius calibration and test leakage control
 
-Supplier availability is represented by a multiplier in `[0, 1]`. A value of `0.35`, for example, means only 35% of reserved capacity is usable in that scenario. Reservation cost is still incurred because the first-stage decision is made before the disruption is known.
+Candidate Wasserstein radii are selected using **validation data only**. The selection criterion is validation p90 total cost. `configs/final_evaluation.json` freezes the train, validation and final blocks plus the candidate radius grid.
 
-## Validation invariants
+The final campaign never uses final scenarios for radius selection or model redesign.
 
-The implementation checks that:
+## Frozen final evaluation
 
-1. Wasserstein radius `epsilon = 0` reproduces empirical expected recourse;
-2. worst-case Wasserstein recourse is non-decreasing with radius;
-3. disruption cannot improve recourse cost merely by removing usable supply capacity;
-4. first-stage capacity remains within supplier limits;
-5. recourse explicitly accounts for unmet demand through shortage variables;
-6. nominal, DRO and classical robust policies are evaluated on common OOD/stress sets.
+`python -m supply_dro.final_campaign` evaluates every policy on identical paired realizations in three blocks:
 
-## Quick start
+- `nominal_final`: nominal demand, full supplier availability;
+- `demand_shift`: higher-demand distribution, full availability;
+- `joint_shift`: shifted demand plus supplier-availability losses.
+
+The campaign reports:
+
+- selected capacity vector;
+- calibrated demand-only and joint-DRO radii;
+- mean total cost;
+- p90 total cost;
+- worst total cost;
+- mean recourse cost;
+- optimization time;
+- paired mean cost difference versus nominal;
+- 95% paired bootstrap interval;
+- paired win rate.
+
+## Reproducibility
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
+ruff check src tests
 pytest -q
 python -m supply_dro.experiment
+python -m supply_dro.final_campaign
 ```
-
-The experiment reports, for each policy family:
-
-- selected supplier capacity vector;
-- training mean total cost;
-- OOD mean, p90 and worst total cost;
-- mean stress-set cost;
-- worst stress-set cost;
-- identity of the binding worst disruption scenario.
 
 ## Repository map
 
 ```text
 src/supply_dro/
-  model.py                 # original single-period reference model
-  wasserstein.py           # scalar-demand Wasserstein transport LP
-  optimize.py              # original reference optimizer
-  network.py               # two-stage network, disruptions and recourse LP
-  network_wasserstein.py   # vector-demand Wasserstein adversary
-  network_optimize.py      # nominal, DRO and classical robust policies
-  experiment.py            # OOD + disruption comparison campaign
+  model.py
+  wasserstein.py
+  optimize.py
+  network.py
+  network_wasserstein.py
+  network_optimize.py
+  joint_wasserstein.py
+  final_methods.py
+  statistics.py
+  experiment.py
+  final_campaign.py
 tests/
   test_dro.py
   test_network_dro.py
   test_disruptions.py
+  test_final_campaign.py
 configs/
   experiment.json
+  final_evaluation.json
+docs/
+  final_report.md
 .github/workflows/
   ci.yml
 ```
 
-## Evaluation contract
+## Validation contract
 
-Do not declare a robust method superior from one metric. Report nominal cost, OOD distribution-shift performance, worst stress cost, tail metrics, capacity commitment and the uncertainty model used. A policy that is more expensive nominally may be justified only if the resilience gain is measurable.
+A result is accepted only if:
 
-## Next research stages
+1. demand-only `epsilon = 0` reproduces empirical expected recourse;
+2. joint `epsilon = 0` reproduces empirical recourse under aligned demand/availability states;
+3. supplier availability remains in `[0, 1]`;
+4. all unmet demand is represented explicitly as shortage;
+5. first-stage reservation cost is included in every final total-cost metric;
+6. radii are selected only from validation data;
+7. every policy is evaluated on identical final realizations;
+8. nominal, demand-DRO, joint-DRO and classical-robust results remain separate;
+9. robustness is judged from cost/tail trade-offs rather than one cherry-picked metric.
 
-### Phase 4 — ambiguity-radius calibration
-Use validation-only data to select Wasserstein radius. Freeze the radius before final-test evaluation.
+See `docs/final_report.md` for the full methodological contract.
 
-### Phase 5 — joint demand/disruption ambiguity
-Extend the ambiguity state beyond vector demand so supplier availability itself becomes uncertain inside a joint distributional model.
+## Scope boundary
 
-### Phase 6 — larger network
-Add more suppliers, warehouses and customer zones. Replace capacity-grid enumeration with an optimization/decomposition method once dimensionality makes grid search inappropriate.
-
-### Phase 7 — statistical final campaign
-Use frozen validation/final scenario blocks, paired comparisons, bootstrap confidence intervals, CVaR, service-level and shortage-rate metrics.
-
-## Portfolio signal
-
-The project now distinguishes three materially different uncertainty paradigms—empirical stochastic optimization, distributionally robust optimization and scenario-set robust optimization—under one recourse model. That comparison is more informative than simply adding safety stock or labeling one policy as “robust.”
+This repository is complete as a small two-stage uncertainty benchmark. Multi-echelon networks, facility-location binaries, lead-time dynamics, endogenous disruptions and large-network decomposition should be separate research extensions rather than silent changes to this frozen benchmark.
 
 ## License
 
