@@ -60,6 +60,33 @@ def optimize_dro_network(
     return best
 
 
+def optimize_classical_robust_network(
+    stress_scenarios: list[tuple[np.ndarray, np.ndarray, str]],
+    data: NetworkData,
+    step: float = 10.0,
+) -> dict[str, object]:
+    """Minimize worst-case total cost over a finite demand/disruption stress set."""
+    best: dict[str, object] | None = None
+    for capacity in capacity_grid(data, step):
+        scenario_costs = []
+        for demand, availability, name in stress_scenarios:
+            total = first_stage_cost(capacity, data) + recourse_cost(
+                capacity, demand, data, availability=availability
+            )
+            scenario_costs.append((float(total), name))
+        worst_cost, worst_name = max(scenario_costs, key=lambda item: item[0])
+        if best is None or worst_cost < best["objective"]:
+            best = {
+                "capacity": capacity,
+                "objective": worst_cost,
+                "worst_scenario": worst_name,
+                "first_stage_cost": first_stage_cost(capacity, data),
+            }
+    if best is None:
+        raise RuntimeError("capacity grid is empty")
+    return best
+
+
 def evaluate_network_policy(
     capacity: np.ndarray,
     scenarios: np.ndarray,
@@ -72,4 +99,23 @@ def evaluate_network_policy(
         "p90_total_cost": float(np.quantile(total, 0.90)),
         "worst_total_cost": float(np.max(total)),
         "mean_recourse": float(np.mean(recourse)),
+    }
+
+
+def evaluate_disruption_policy(
+    capacity: np.ndarray,
+    stress_scenarios: list[tuple[np.ndarray, np.ndarray, str]],
+    data: NetworkData,
+) -> dict[str, float | str]:
+    costs = []
+    for demand, availability, name in stress_scenarios:
+        total = first_stage_cost(capacity, data) + recourse_cost(
+            capacity, demand, data, availability=availability
+        )
+        costs.append((float(total), name))
+    worst_cost, worst_name = max(costs, key=lambda item: item[0])
+    return {
+        "mean_stress_cost": float(np.mean([cost for cost, _ in costs])),
+        "worst_stress_cost": worst_cost,
+        "worst_stress_scenario": worst_name,
     }
