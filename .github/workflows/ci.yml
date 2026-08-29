@@ -15,3 +15,4 @@ jobs:
       - run: ruff check src tests
       - run: pytest -q
       - run: python -m supply_dro.experiment
+      - run: python -m supply_dro.final_campaign
