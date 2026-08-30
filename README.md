@@ -1,14 +1,15 @@
 # Distributionally Robust Supply Chain Optimization
 
-Research-oriented Industrial Engineering / Operations Research benchmark for two-stage supply-network decisions under **distribution shift and supplier disruption**.
+Research-oriented Industrial Engineering / Operations Research benchmark for supply-network decisions under **distribution shift, supplier disruption and sequential control**.
 
-## Research question
+## Research questions
 
-How should a supply-network planner trade nominal efficiency against resilience when uncertainty comes from both demand distribution shift and supplier-capacity loss, and when does joint distributional robustness add value beyond demand-only DRO or a classical stress set?
+1. How should a two-stage supply-network planner trade nominal efficiency against resilience when uncertainty comes from demand distribution shift and supplier-capacity loss?
+2. When capacity can be adjusted repeatedly over time, can a reinforcement-learning controller learn useful adaptive decisions relative to static stochastic/robust policies, a myopic OR controller and an exact finite-MDP dynamic-programming oracle?
 
 ## Current status
 
-**Feature-complete research benchmark.**
+**Feature-complete research benchmark, including the sequential RL/control extension.**
 
 The repository implements:
 
@@ -21,7 +22,11 @@ The repository implements:
 - joint demand-and-availability Wasserstein DRO;
 - validation-only ambiguity-radius calibration;
 - frozen nominal, demand-shift and joint-shift final evaluation blocks;
-- paired bootstrap comparisons against the nominal policy;
+- a separate finite-horizon sequential capacity-control MDP;
+- an exact dynamic-programming oracle for that discretized MDP;
+- tabular Q-learning trained only from sampled transitions;
+- static nominal, static robust and myopic-OR control baselines;
+- multi-seed Q-learning aggregation, common-random-number evaluation and paired bootstrap intervals;
 - reproducible configs, tests, final report and CI across Python 3.10–3.12.
 
 ## Two-stage formulation
@@ -37,7 +42,7 @@ s.t. sum_m y_sm <= a_s x_s                  for each supplier s
 
 Reservation cost is paid before uncertainty is observed.
 
-## Four uncertainty paradigms
+## Static uncertainty paradigms
 
 ### Nominal stochastic optimization
 
@@ -63,36 +68,67 @@ The ambiguity state contains both demand and supplier availability. The transpor
 min_x max_scenario total_cost(x, demand_s, availability_s)
 ```
 
-The stress set contains demand surges, individual supplier disruptions and a joint stress case. This model protects against named operational scenarios rather than a probabilistic ambiguity neighborhood.
+The stress set contains demand surges, individual supplier disruptions and a joint stress case.
 
-These paradigms are reported separately because their uncertainty assumptions are materially different.
+These paradigms remain separate because their uncertainty assumptions are materially different.
 
-## Radius calibration and test leakage control
+## Sequential RL/control extension
+
+The RL extension does **not** modify the frozen two-stage benchmark. It defines a separate finite-horizon control problem that reuses the same network recourse LP.
+
+At each period the controller observes:
+
+- the current supplier-capacity vector on a discrete grid;
+- a public supply-demand regime signal: `normal` or `stress`.
+
+The action chooses the next capacity vector subject to a one-grid-step adjustment limit per supplier. Then demand and supplier availability are sampled from a signal-dependent finite distribution. Period cost is:
+
+```text
+capacity reservation cost
++ capacity adjustment cost
++ LP recourse cost
+```
+
+The regime evolves according to a two-state Markov chain.
+
+### RL and control baselines
+
+The sequential benchmark compares:
+
+- `exact_dynamic_dp`: exact backward DP on the discretized MDP;
+- `myopic_or`: minimizes expected one-period cost and ignores future regime transitions;
+- `static_nominal`: moves toward the nominal stochastic capacity target;
+- `static_robust`: moves toward the classical-robust capacity target;
+- `q_learning`: tabular Q-learning using sampled transitions only.
+
+Q-learning never receives the exact DP value function or future random outcomes. The DP solution is an evaluation oracle, not an expert-training signal.
+
+Three independent Q-learning training seeds are evaluated and averaged **within each environment seed** before statistical comparison, so model seeds are not incorrectly counted as independent test instances.
+
+## Radius calibration and leakage control
 
 Candidate Wasserstein radii are selected using **validation data only**. The selection criterion is validation p90 total cost. `configs/final_evaluation.json` freezes the train, validation and final blocks plus the candidate radius grid.
 
-The final campaign never uses final scenarios for radius selection or model redesign.
+The sequential RL benchmark has its own frozen contract in `configs/rl_control.json`; final environment seeds are not used to train Q-learning.
 
-## Frozen final evaluation
+## Frozen evaluations
 
-`python -m supply_dro.final_campaign` evaluates every policy on identical paired realizations in three blocks:
+`python -m supply_dro.final_campaign` evaluates the static uncertainty policies on identical paired realizations in:
 
-- `nominal_final`: nominal demand, full supplier availability;
-- `demand_shift`: higher-demand distribution, full availability;
-- `joint_shift`: shifted demand plus supplier-availability losses.
+- `nominal_final`;
+- `demand_shift`;
+- `joint_shift`.
 
-The campaign reports:
+`python -m supply_dro.rl_experiment` evaluates the sequential controllers with common random numbers and reports:
 
-- selected capacity vector;
-- calibrated demand-only and joint-DRO radii;
 - mean total cost;
-- p90 total cost;
-- worst total cost;
-- mean recourse cost;
-- optimization time;
-- paired mean cost difference versus nominal;
-- 95% paired bootstrap interval;
-- paired win rate.
+- mean cost gap to exact dynamic DP;
+- paired bootstrap 95% interval;
+- paired win rate versus DP;
+- mean decision latency;
+- static nominal and robust capacity targets.
+
+The objective is not to force Q-learning to win. If myopic OR or a static robust policy is competitive, that result is retained.
 
 ## Reproducibility
 
@@ -104,6 +140,7 @@ ruff check src tests
 pytest -q
 python -m supply_dro.experiment
 python -m supply_dro.final_campaign
+python -m supply_dro.rl_experiment
 ```
 
 ## Repository map
@@ -121,14 +158,18 @@ src/supply_dro/
   statistics.py
   experiment.py
   final_campaign.py
+  rl_control.py
+  rl_experiment.py
 tests/
   test_dro.py
   test_network_dro.py
   test_disruptions.py
   test_final_campaign.py
+  test_rl_control.py
 configs/
   experiment.json
   final_evaluation.json
+  rl_control.json
 docs/
   final_report.md
 .github/workflows/
@@ -143,17 +184,18 @@ A result is accepted only if:
 2. joint `epsilon = 0` reproduces empirical recourse under aligned demand/availability states;
 3. supplier availability remains in `[0, 1]`;
 4. all unmet demand is represented explicitly as shortage;
-5. first-stage reservation cost is included in every final total-cost metric;
+5. first-stage reservation cost is included in every static final total-cost metric;
 6. radii are selected only from validation data;
-7. every policy is evaluated on identical final realizations;
+7. every static policy is evaluated on identical final realizations;
 8. nominal, demand-DRO, joint-DRO and classical-robust results remain separate;
-9. robustness is judged from cost/tail trade-offs rather than one cherry-picked metric.
-
-See `docs/final_report.md` for the full methodological contract.
+9. sequential capacity adjustments always satisfy the control grid and adjustment limit;
+10. exact DP is used only as a control oracle/evaluation reference, not as Q-learning supervision;
+11. Q-learning model seeds are aggregated within environment instances before paired inference;
+12. complex methods must earn their place against simpler OR/control baselines.
 
 ## Scope boundary
 
-This repository is complete as a small two-stage uncertainty benchmark. Multi-echelon networks, facility-location binaries, lead-time dynamics, endogenous disruptions and large-network decomposition should be separate research extensions rather than silent changes to this frozen benchmark.
+This repository is complete as a small uncertainty-and-control benchmark. The static two-stage study and sequential RL study are intentionally separate layers sharing the same recourse model. Multi-echelon networks, facility-location binaries, continuous-action RL, endogenous disruptions, lead-time state and large-network decomposition should be separate research projects rather than further expansion of this repository.
 
 ## License
 
