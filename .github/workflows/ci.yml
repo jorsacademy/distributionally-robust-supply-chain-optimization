@@ -16,3 +16,15 @@ jobs:
       - run: pytest -q
       - run: python -m supply_dro.experiment
       - run: python -m supply_dro.final_campaign
+
+  rl-control:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -e '.[dev]'
+      - run: ruff check src tests
+      - run: pytest -q tests/test_rl_control.py
+      - run: python -m supply_dro.rl_experiment
