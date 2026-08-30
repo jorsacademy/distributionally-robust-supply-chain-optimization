@@ -2,9 +2,12 @@
 
 ## Scope
 
-This repository is a compact research benchmark for two-stage supply-network decisions under demand distribution shift and supplier-capacity disruption.
+This repository now contains two deliberately separated but compatible research layers:
 
-The implemented stack is now considered feature-complete for this benchmark:
+1. a frozen two-stage supply-network uncertainty benchmark;
+2. a finite-horizon sequential capacity-control benchmark using the same LP recourse model.
+
+The implemented stack is considered feature-complete:
 
 1. nominal empirical stochastic optimization;
 2. two-stage capacity reservation with LP recourse;
@@ -14,7 +17,12 @@ The implemented stack is now considered feature-complete for this benchmark:
 6. validation-only ambiguity-radius calibration;
 7. untouched nominal, demand-shift and joint-shift final blocks;
 8. paired bootstrap comparisons against the nominal policy;
-9. reproducible configuration, tests and CI.
+9. sequential capacity adjustment under observable normal/stress signals;
+10. exact finite-MDP dynamic programming;
+11. tabular Q-learning from sampled transitions;
+12. static nominal, static robust and myopic OR control baselines;
+13. multi-seed RL aggregation, common random numbers, latency and paired inference;
+14. reproducible configuration, tests and CI.
 
 ## Two-stage model
 
@@ -29,7 +37,7 @@ s.t. sum_m y_sm <= a_s x_s                  for each supplier s
 
 The first-stage objective adds reservation cost to the selected uncertainty treatment of recourse cost.
 
-## Four decision paradigms
+## Static decision paradigms
 
 ### Nominal stochastic
 
@@ -41,29 +49,90 @@ Reweights the empirical vector-demand distribution inside a finite-support 1-Was
 
 ### Joint demand/disruption Wasserstein DRO
 
-The uncertainty state contains both demand and supplier availability. The transport metric combines normalized L1 demand distance with a separately weighted availability distance. This allows probability mass to move toward states that are simultaneously demand-intensive and capacity-impaired.
+The uncertainty state contains both demand and supplier availability. The transport metric combines normalized L1 demand distance with a separately weighted availability distance.
 
 ### Classical robust
 
 Minimizes the maximum total cost over a finite named stress set containing demand surges, individual supplier disruptions and a joint stress case.
 
-These models are intentionally not treated as interchangeable forms of “robustness.” Their ambiguity assumptions differ materially.
+These models are intentionally not treated as interchangeable forms of robustness.
 
 ## Radius calibration
 
 Wasserstein radii are selected using validation data only. The selection criterion is validation p90 total cost. Candidate radii are frozen in `configs/final_evaluation.json`.
 
-The final evaluation blocks are not used for radius selection, capacity-grid selection or model redesign. This protects the final comparison from test leakage.
+The final evaluation blocks are not used for radius selection, capacity-grid selection or model redesign.
 
-## Frozen final blocks
+## Static frozen final blocks
 
-The final campaign evaluates every policy on the same paired realizations in three blocks:
+The static final campaign evaluates every policy on the same paired realizations in:
 
-- `nominal_final`: demand from the nominal generator, full supplier availability;
-- `demand_shift`: higher-demand distribution, full supplier availability;
-- `joint_shift`: shifted demand plus random supplier-availability losses.
+- `nominal_final`;
+- `demand_shift`;
+- `joint_shift`.
 
 For each policy and block, the benchmark reports mean, p90 and worst total cost. Scenario-level paired differences against the nominal policy are summarized with a deterministic bootstrap confidence interval and win rate.
+
+## Sequential control extension
+
+The RL/control extension is a separate finite-horizon MDP. It does not retroactively redefine the two-stage DRO problem.
+
+### State
+
+The controller observes:
+
+- current reserved-capacity levels for both suppliers on a discrete grid;
+- a public Markov regime signal: `normal` or `stress`.
+
+### Action
+
+The controller chooses the next supplier-capacity vector. Each supplier may move by at most one capacity-grid step per period.
+
+### Random transition
+
+Conditional on the observed regime, demand and supplier availability are sampled from a finite joint operational distribution. The same LP recourse model computes shipment and shortage cost. The regime then follows a two-state Markov transition matrix.
+
+### Stage cost
+
+```text
+reservation cost
++ adjustment cost
++ LP recourse cost
+```
+
+### Exact dynamic-programming oracle
+
+Because the benchmark has a small finite state/action space and known transition model, backward dynamic programming provides the exact optimal policy for the discretized MDP. This is the principal sequential-control reference.
+
+### Q-learning
+
+Tabular Q-learning is trained from sampled transitions only. It does not receive DP values, optimal DP actions or future random outcomes.
+
+Three independent Q-learning seeds are trained. At evaluation time their costs are first averaged within each common environment seed; model seeds are therefore not treated as extra independent test observations.
+
+### Sequential baselines
+
+The final control comparison includes:
+
+- exact dynamic DP;
+- one-step myopic OR;
+- static nominal target control;
+- static classical-robust target control;
+- tabular Q-learning.
+
+This comparison is intentionally demanding: Q-learning must earn its place against a strong one-step optimization controller and an exact finite-MDP oracle.
+
+## Common-random-number evaluation
+
+Every sequential controller is rolled out with the same environment seeds. Exogenous demand, availability and signal-transition random numbers depend on the environment seed rather than the chosen action. Paired total-cost comparisons therefore use common random numbers.
+
+The control report includes:
+
+- mean total cost;
+- cost gap to exact DP;
+- paired bootstrap 95% interval;
+- paired win rate;
+- decision latency.
 
 ## Validation invariants
 
@@ -73,11 +142,15 @@ A result is accepted only if:
 2. joint radius zero reproduces empirical expected recourse under joint demand/availability states;
 3. supplier availability remains in `[0, 1]`;
 4. all unmet demand is represented explicitly by shortage recourse;
-5. first-stage reservation cost is included in every final objective;
+5. first-stage reservation cost is included in every static final objective;
 6. candidate radii are chosen only from validation data;
-7. all policies are evaluated on identical final realizations;
+7. all static policies are evaluated on identical final realizations;
 8. nominal, demand-DRO, joint-DRO and classical-robust results are reported separately;
-9. a robust policy is not declared superior from one metric alone.
+9. sequential actions respect the discrete capacity grid and adjustment bound;
+10. Q-learning receives sampled transition feedback only;
+11. exact DP is an evaluation/control oracle rather than a training label source;
+12. RL model seeds are aggregated within environment seeds before paired inference;
+13. negative/null results are retained.
 
 ## Reproducibility
 
@@ -89,14 +162,17 @@ ruff check src tests
 pytest -q
 python -m supply_dro.experiment
 python -m supply_dro.final_campaign
+python -m supply_dro.rl_experiment
 ```
 
 ## Interpretation
 
-The research question is not “does DRO always win?” A more conservative policy may increase nominal cost while reducing tail or disruption exposure. Such a trade-off is acceptable only when the resilience gain is measurable on untouched scenarios.
+The static research question is not “does DRO always win?” A conservative policy may increase nominal cost while reducing tail or disruption exposure. Such a trade-off is acceptable only when the resilience gain is measurable on untouched scenarios.
 
-If the nominal solution remains best under both nominal and shifted conditions, that is a valid negative result. If classical robust dominates only named disruption stresses but performs poorly under probabilistic demand shift, that distinction is itself an important result. Likewise, joint DRO must earn its additional modeling complexity relative to demand-only DRO.
+The sequential research question is likewise not “does RL beat OR?” Exact dynamic programming should dominate the discretized MDP when its assumptions are correct. The meaningful comparison is whether sampled-transition Q-learning approaches that reference efficiently and whether it adds enough adaptivity relative to static or myopic controls to justify its learning complexity.
+
+A result in which myopic OR or a static robust target outperforms Q-learning is a valid result and must remain visible.
 
 ## Scope boundary
 
-The repository is complete as a small two-stage uncertainty benchmark. Multi-echelon networks, facility opening, integer capacity expansion, lead-time dynamics, endogenous disruptions and decomposition for large networks should be separate research extensions rather than silent changes to this frozen benchmark.
+The repository is complete as a small uncertainty-and-control benchmark. Multi-echelon networks, facility opening, integer expansion, continuous-action RL, endogenous disruptions, travel/lead-time state and large-network decomposition are separate research extensions rather than further additions to this frozen repository.
