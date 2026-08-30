@@ -1,0 +1,30 @@
+{
+  "problem": "sequential_supply_capacity_control",
+  "horizon": 6,
+  "capacity_step": 20.0,
+  "max_adjustment": 20.0,
+  "adjustment_cost": 0.35,
+  "signals": ["normal", "stress"],
+  "training": {
+    "algorithm": "tabular_q_learning",
+    "model_seeds": [0, 1, 2],
+    "episodes": 4000,
+    "alpha": 0.12,
+    "epsilon_start": 0.35,
+    "epsilon_end": 0.03
+  },
+  "final_environment_seeds": [1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019],
+  "baselines": [
+    "exact_dynamic_dp",
+    "myopic_or",
+    "static_nominal",
+    "static_robust"
+  ],
+  "primary_metric": "total_cost_gap_to_exact_dynamic_dp",
+  "secondary_metrics": [
+    "mean_total_cost",
+    "paired_bootstrap_95_ci",
+    "decision_latency_ms"
+  ],
+  "evaluation_contract": "Q-learning training uses sampled transitions only. Exact DP is an evaluation oracle for the discretized MDP. Static stochastic/DRO/robust optimization results remain separate from the sequential control benchmark."
+}
