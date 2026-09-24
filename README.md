@@ -1,4 +1,20 @@
-# Distributionally Robust Supply Chain Optimization
+# Robust and Adaptive Supply Chain Optimization
+
+<!-- portfolio-umbrella:start -->
+## Portfolio role
+
+This repository is the primary umbrella repository for this Jors Academy research area. Related projects have been consolidated under `projects/` so the methods, implementations, experiments, and case studies can be maintained and explored from one place.
+
+### Included projects
+
+- [`adjustable-robust-supply-chain-optimization-ccg`](projects/adjustable-robust-supply-chain-optimization-ccg/)
+- [`agent-based-supply-chain-simulation-python`](projects/agent-based-supply-chain-simulation-python/)
+- [`generative-supply-chain-scenarios-stochastic-optimization-pytorch`](projects/generative-supply-chain-scenarios-stochastic-optimization-pytorch/)
+- [`hierarchical-supply-chain-rl`](projects/hierarchical-supply-chain-rl/)
+- [`robust-supply-chain-network-optimization`](projects/robust-supply-chain-network-optimization/)
+
+Each consolidated project keeps its own files and a `SOURCE_REPOSITORY.md` provenance record. The snapshot preserves the source repository's default-branch files at consolidation time; repository-level history and metadata remain separate from the snapshot.
+<!-- portfolio-umbrella:end -->
 
 Research-oriented Industrial Engineering / Operations Research benchmark for supply-network decisions under **distribution shift, supplier disruption and sequential control**.
 
